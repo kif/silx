@@ -326,6 +326,23 @@ class TestPlotImage(PlotWidgetTestCase, ParametricTestCase):
                            resetzoom=False)
         self.plot.resetZoom()
 
+    def testPlotColormapNaNColor(self):
+        self.plot.setKeepDataAspectRatio(False)
+        self.plot.setGraphTitle('Colormap with NaN color')
+
+        colormap = Colormap()
+        colormap.setNaNColor('red')
+        self.assertEqual(colormap.getNaNColor(), qt.QColor(255, 0, 0))
+        data = DATA_2D.astype(numpy.float32)
+        data[len(data)//2:] = numpy.nan
+        self.plot.addImage(data, legend="image 1", colormap=colormap,
+                           resetzoom=False)
+        self.plot.resetZoom()
+
+        colormap.setNaNColor((0., 1., 0., 1.))
+        self.assertEqual(colormap.getNaNColor(), qt.QColor(0, 255, 0))
+        self.qapp.processEvents()
+
     def testImageOriginScale(self):
         """Test of image with different origin and scale"""
         self.plot.setGraphTitle('origin and scale')
@@ -437,6 +454,21 @@ class TestPlotCurve(PlotWidgetTestCase):
         self.plot.getXAxis().setLabel('Columns')
 
         self.plot.setActiveCurveHandling(False)
+
+    def testPlotCurveInfinite(self):
+        """Test plot curves with not finite data"""
+        tests = {
+            'y all not finite': ([0, 1, 2], [numpy.inf, numpy.nan, -numpy.inf]),
+            'x all not finite': ([numpy.inf, numpy.nan, -numpy.inf], [0, 1, 2]),
+            'x some inf': ([0, numpy.inf, 2], [0, 1, 2]),
+            'y some inf': ([0, 1, 2], [0, numpy.inf, 2])
+        }
+        for name, args in tests.items():
+            with self.subTest(name):
+                self.plot.addCurve(*args)
+                self.plot.resetZoom()
+                self.qapp.processEvents()
+                self.plot.clear()
 
     def testPlotCurveColorFloat(self):
         color = numpy.array(numpy.random.random(3 * 1000),
@@ -1384,6 +1416,20 @@ class TestPlotAxes(TestCaseQt, ParametricTestCase):
         """Test coverage on setAxesDisplayed(True)"""
         self.plot.setAxesDisplayed(True)
 
+    def testAxesMargins(self):
+        """Test PlotWidget's getAxesMargins and setAxesMargins"""
+        self.plot.show()
+        self.qWaitForWindowExposed(self.plot)
+
+        margins = self.plot.getAxesMargins()
+        self.assertEqual(margins, (.15, .1, .1, .15))
+
+        for margins in ((0., 0., 0., 0.), (.15, .1, .1, .15)):
+            with self.subTest(margins=margins):
+                self.plot.setAxesMargins(*margins)
+                self.qapp.processEvents()
+                self.assertEqual(self.plot.getAxesMargins(), margins)
+
     def testBoundingRectItem(self):
         item = BoundingRect()
         item.setBounds((-1000, 1000, -2000, 2000))
@@ -1828,6 +1874,35 @@ class TestPlotItemLog(PlotWidgetTestCase):
         self.plot.resetZoom()
 
 
+class TestPlotWidgetSwitchBackend(PlotWidgetTestCase):
+    """Test [get|set]Backend to switch backend"""
+
+    def testSwitchBackend(self):
+        """Test switching a plot with a few items"""
+        backends = {'none': 'BackendBase', 'mpl': 'BackendMatplotlibQt'}
+        if test_options.WITH_GL_TEST:
+            backends['gl'] = 'BackendOpenGL'
+
+        self.plot.addImage(numpy.arange(100).reshape(10, 10))
+        self.plot.addCurve((-3, -2, -1), (1, 2, 3))
+        self.plot.resetZoom()
+        xlimits = self.plot.getXAxis().getLimits()
+        ylimits = self.plot.getYAxis().getLimits()
+        items = self.plot.getItems()
+        self.assertEqual(len(items), 2)
+
+        for backend, className in backends.items():
+            with self.subTest(backend=backend):
+                self.plot.setBackend(backend)
+                self.plot.replot()
+
+                retrievedBackend = self.plot.getBackend()
+                self.assertEqual(type(retrievedBackend).__name__, className)
+                self.assertEqual(self.plot.getXAxis().getLimits(), xlimits)
+                self.assertEqual(self.plot.getYAxis().getLimits(), ylimits)
+                self.assertEqual(self.plot.getItems(), items)
+
+
 def suite():
     testClasses = (TestPlotWidget,
                    TestPlotImage,
@@ -1858,6 +1933,9 @@ def suite():
         # Tests with OpenGL backend
         for testClass in testClasses:
             test_suite.addTest(parameterize(testClass, backend='gl'))
+
+    test_suite.addTest(unittest.defaultTestLoader.loadTestsFromTestCase(
+        TestPlotWidgetSwitchBackend))
 
     return test_suite
 

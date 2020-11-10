@@ -40,10 +40,12 @@ from ...._glutils import gl, Program, Texture
 from ..._utils import FLOAT32_MINPOS
 from .GLSupport import mat4Translate, mat4Scale
 from .GLTexture import Image
+from .GLPlotItem import GLPlotItem
 
 
-class _GLPlotData2D(object):
+class _GLPlotData2D(GLPlotItem):
     def __init__(self, data, origin, scale):
+        super().__init__()
         self.data = data
         assert len(origin) == 2
         self.origin = tuple(origin)
@@ -79,15 +81,6 @@ class _GLPlotData2D(object):
     def yMax(self):
         oy, sy = self.origin[1], self.scale[1]
         return oy + sy * self.data.shape[0] if sy >= 0. else oy
-
-    def discard(self):
-        pass
-
-    def prepare(self):
-        pass
-
-    def render(self, matrix, isXLog, isYLog):
-        pass
 
 
 class GLPlotColormap(_GLPlotData2D):
@@ -160,6 +153,11 @@ class GLPlotColormap(_GLPlotData2D):
         'fragment': """
     #version 120
 
+    /* isnan declaration for compatibility with GLSL 1.20 */
+    bool isnan(float value) {
+        return (value != value);
+    }
+
     uniform sampler2D data;
     uniform sampler2D cmap_texture;
     uniform int cmap_normalization;
@@ -167,6 +165,7 @@ class GLPlotColormap(_GLPlotData2D):
     uniform float cmap_min;
     uniform float cmap_oneOverRange;
     uniform float alpha;
+    uniform vec4 nancolor;
 
     varying vec2 coords;
 
@@ -175,7 +174,8 @@ class GLPlotColormap(_GLPlotData2D):
     const float oneOverLog10 = 0.43429448190325176;
 
     void main(void) {
-        float value = texture2D(data, textureCoords()).r;
+        float data = texture2D(data, textureCoords()).r;
+        float value = data;
         if (cmap_normalization == 1) { /*Logarithm mapping*/
             if (value > 0.) {
                 value = clamp(cmap_oneOverRange *
@@ -202,7 +202,11 @@ class GLPlotColormap(_GLPlotData2D):
             value = clamp(cmap_oneOverRange * (value - cmap_min), 0., 1.);
         }
 
-        gl_FragColor = texture2D(cmap_texture, vec2(value, 0.5));
+        if (isnan(data)) {
+            gl_FragColor = nancolor;
+        } else {
+            gl_FragColor = texture2D(cmap_texture, vec2(value, 0.5));
+        }
         gl_FragColor.a *= alpha;
     }
     """
@@ -213,6 +217,7 @@ class GLPlotColormap(_GLPlotData2D):
 
     _INTERNAL_FORMATS = {
         numpy.dtype(numpy.float32): gl.GL_R32F,
+        numpy.dtype(numpy.float16): gl.GL_R16F,
         # Use normalized integer for unsigned int formats
         numpy.dtype(numpy.uint16): gl.GL_R16,
         numpy.dtype(numpy.uint8): gl.GL_R8,
@@ -232,7 +237,7 @@ class GLPlotColormap(_GLPlotData2D):
 
     def __init__(self, data, origin, scale,
                  colormap, normalization='linear', gamma=0., cmapRange=None,
-                 alpha=1.0):
+                 alpha=1.0, nancolor=(1., 1., 1., 0.)):
         """Create a 2D colormap
 
         :param data: The 2D scalar data array to display
@@ -252,6 +257,8 @@ class GLPlotColormap(_GLPlotData2D):
             TODO: check consistency with matplotlib
         :type cmapRange: (float, float) or None
         :param float alpha: Opacity from 0 (transparent) to 1 (opaque)
+        :param nancolor: RGBA color for Not-A-Number values
+        :type nancolor: 4-tuple of float in [0., 1.]
         """
         assert data.dtype in self._INTERNAL_FORMATS
         assert normalization in self.SUPPORTED_NORMALIZATIONS
@@ -263,6 +270,7 @@ class GLPlotColormap(_GLPlotData2D):
         self._cmapRange = (1., 10.)  # Colormap range
         self.cmapRange = cmapRange  # Update _cmapRange
         self._alpha = numpy.clip(alpha, 0., 1.)
+        self._nancolor = numpy.clip(nancolor, 0., 1.)
 
         self._cmap_texture = None
         self._texture = None
@@ -283,7 +291,7 @@ class GLPlotColormap(_GLPlotData2D):
         if self.normalization == 'log':
             assert self._cmapRange[0] > 0. and self._cmapRange[1] > 0.
         elif self.normalization == 'sqrt':
-            assert self._cmapRange[0] >= 0. and self._cmapRange[1] > 0.
+            assert self._cmapRange[0] >= 0. and self._cmapRange[1] >= 0.
         return self._cmapRange
 
     @cmapRange.setter
@@ -324,6 +332,7 @@ class GLPlotColormap(_GLPlotData2D):
                                          magFilter=gl.GL_NEAREST,
                                          wrap=(gl.GL_CLAMP_TO_EDGE,
                                                gl.GL_CLAMP_TO_EDGE))
+            self._cmap_texture.prepare()
 
         if self._texture is None:
             internalFormat = self._INTERNAL_FORMATS[self.data.dtype]
@@ -376,9 +385,15 @@ class GLPlotColormap(_GLPlotData2D):
             oneOverRange = 0.  # Fall-back
         gl.glUniform1f(prog.uniforms['cmap_oneOverRange'], oneOverRange)
 
+        gl.glUniform4f(prog.uniforms['nancolor'], *self._nancolor)
+
         self._cmap_texture.bind()
 
-    def _renderLinear(self, matrix):
+    def _renderLinear(self, context):
+        """Perform rendering when both axes have linear scales
+
+        :param RenderContext context: Rendering information
+        """
         self.prepare()
 
         prog = self._linearProgram
@@ -386,7 +401,7 @@ class GLPlotColormap(_GLPlotData2D):
 
         gl.glUniform1i(prog.uniforms['data'], self._DATA_TEX_UNIT)
 
-        mat = numpy.dot(numpy.dot(matrix,
+        mat = numpy.dot(numpy.dot(context.matrix,
                                   mat4Translate(*self.origin)),
                         mat4Scale(*self.scale))
         gl.glUniformMatrix4fv(prog.uniforms['matrix'], 1, gl.GL_TRUE,
@@ -400,10 +415,14 @@ class GLPlotColormap(_GLPlotData2D):
                              prog.attributes['texCoords'],
                              self._DATA_TEX_UNIT)
 
-    def _renderLog10(self, matrix, isXLog, isYLog):
+    def _renderLog10(self, context):
+        """Perform rendering when one axis has log scale
+
+        :param RenderContext context: Rendering information
+        """
         xMin, yMin = self.xMin, self.yMin
-        if ((isXLog and xMin < FLOAT32_MINPOS) or
-                (isYLog and yMin < FLOAT32_MINPOS)):
+        if ((context.isXLog and xMin < FLOAT32_MINPOS) or
+                (context.isYLog and yMin < FLOAT32_MINPOS)):
             # Do not render images that are partly or totally <= 0
             return
 
@@ -417,12 +436,12 @@ class GLPlotColormap(_GLPlotData2D):
         gl.glUniform1i(prog.uniforms['data'], self._DATA_TEX_UNIT)
 
         gl.glUniformMatrix4fv(prog.uniforms['matrix'], 1, gl.GL_TRUE,
-                              matrix.astype(numpy.float32))
+                              context.matrix.astype(numpy.float32))
         mat = numpy.dot(mat4Translate(ox, oy), mat4Scale(*self.scale))
         gl.glUniformMatrix4fv(prog.uniforms['matOffset'], 1, gl.GL_TRUE,
                               mat.astype(numpy.float32))
 
-        gl.glUniform2i(prog.uniforms['isLog'], isXLog, isYLog)
+        gl.glUniform2i(prog.uniforms['isLog'], context.isXLog, context.isYLog)
 
         ex = ox + self.scale[0] * self.data.shape[1]
         ey = oy + self.scale[1] * self.data.shape[0]
@@ -461,11 +480,15 @@ class GLPlotColormap(_GLPlotData2D):
 
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, len(vertices))
 
-    def render(self, matrix, isXLog, isYLog):
-        if any((isXLog, isYLog)):
-            self._renderLog10(matrix, isXLog, isYLog)
+    def render(self, context):
+        """Perform rendering
+
+        :param RenderContext context: Rendering information
+        """
+        if any((context.isXLog, context.isYLog)):
+            self._renderLog10(context)
         else:
-            self._renderLinear(matrix)
+            self._renderLinear(context)
 
         # Unbind colormap texture
         gl.glActiveTexture(gl.GL_TEXTURE0 + self._cmap_texture.texUnit)
@@ -635,7 +658,11 @@ class GLPlotRGBAImage(_GLPlotData2D):
             format_ = gl.GL_RGBA if self.data.shape[2] == 4 else gl.GL_RGB
             self._texture.updateAll(format_=format_, data=self.data)
 
-    def _renderLinear(self, matrix):
+    def _renderLinear(self, context):
+        """Perform rendering with both axes having linear scales
+
+        :param RenderContext context: Rendering information
+        """
         self.prepare()
 
         prog = self._linearProgram
@@ -643,7 +670,7 @@ class GLPlotRGBAImage(_GLPlotData2D):
 
         gl.glUniform1i(prog.uniforms['tex'], self._DATA_TEX_UNIT)
 
-        mat = numpy.dot(numpy.dot(matrix, mat4Translate(*self.origin)),
+        mat = numpy.dot(numpy.dot(context.matrix, mat4Translate(*self.origin)),
                         mat4Scale(*self.scale))
         gl.glUniformMatrix4fv(prog.uniforms['matrix'], 1, gl.GL_TRUE,
                               mat.astype(numpy.float32))
@@ -654,7 +681,11 @@ class GLPlotRGBAImage(_GLPlotData2D):
                              prog.attributes['texCoords'],
                              self._DATA_TEX_UNIT)
 
-    def _renderLog(self, matrix, isXLog, isYLog):
+    def _renderLog(self, context):
+        """Perform rendering with axes having log scale
+
+        :param RenderContext context: Rendering information
+        """
         self.prepare()
 
         prog = self._logProgram
@@ -665,12 +696,12 @@ class GLPlotRGBAImage(_GLPlotData2D):
         gl.glUniform1i(prog.uniforms['tex'], self._DATA_TEX_UNIT)
 
         gl.glUniformMatrix4fv(prog.uniforms['matrix'], 1, gl.GL_TRUE,
-                              matrix.astype(numpy.float32))
+                              context.matrix.astype(numpy.float32))
         mat = numpy.dot(mat4Translate(ox, oy), mat4Scale(*self.scale))
         gl.glUniformMatrix4fv(prog.uniforms['matOffset'], 1, gl.GL_TRUE,
                               mat.astype(numpy.float32))
 
-        gl.glUniform2i(prog.uniforms['isLog'], isXLog, isYLog)
+        gl.glUniform2i(prog.uniforms['isLog'], context.isXLog, context.isYLog)
 
         gl.glUniform1f(prog.uniforms['alpha'], self.alpha)
 
@@ -707,8 +738,12 @@ class GLPlotRGBAImage(_GLPlotData2D):
 
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, len(vertices))
 
-    def render(self, matrix, isXLog, isYLog):
-        if any((isXLog, isYLog)):
-            self._renderLog(matrix, isXLog, isYLog)
+    def render(self, context):
+        """Perform rendering
+
+        :param RenderContext context: Rendering information
+        """
+        if any((context.isXLog, context.isYLog)):
+            self._renderLog(context)
         else:
-            self._renderLinear(matrix)
+            self._renderLinear(context)

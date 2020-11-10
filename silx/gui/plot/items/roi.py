@@ -474,19 +474,18 @@ class RegionOfInterest(_RegionOfInterestBase, core.HighlightedMixIn):
             style = self.getCurrentStyle()
             self._updatedStyle(event, style)
         else:
-            hilighted = self.isHighlighted()
-            if hilighted:
-                if event == items.ItemChangedType.HIGHLIGHTED_STYLE:
-                    style = self.getCurrentStyle()
-                    self._updatedStyle(event, style)
-            else:
-                if event in [items.ItemChangedType.COLOR,
-                             items.ItemChangedType.LINE_STYLE,
-                             items.ItemChangedType.LINE_WIDTH,
-                             items.ItemChangedType.SYMBOL,
-                             items.ItemChangedType.SYMBOL_SIZE]:
-                    style = self.getCurrentStyle()
-                    self._updatedStyle(event, style)
+            styleEvents = [items.ItemChangedType.COLOR,
+                           items.ItemChangedType.LINE_STYLE,
+                           items.ItemChangedType.LINE_WIDTH,
+                           items.ItemChangedType.SYMBOL,
+                           items.ItemChangedType.SYMBOL_SIZE]
+            if self.isHighlighted():
+                styleEvents.append(items.ItemChangedType.HIGHLIGHTED_STYLE)
+
+            if event in styleEvents:
+                style = self.getCurrentStyle()
+                self._updatedStyle(event, style)
+
         super(RegionOfInterest, self)._updated(event, checkVisibility)
 
     def _updatedStyle(self, event, style):
@@ -1361,6 +1360,20 @@ class RectangleROI(HandleBasedROI, items.LineMixIn):
             handle2 = opposed[handle]
             current2 = handle2.getPosition()
             points = numpy.array([current, current2])
+
+            # Switch handles if they were crossed by interaction
+            if self._handleBottomLeft.getXPosition() > self._handleBottomRight.getXPosition():
+                self._handleBottomLeft, self._handleBottomRight = self._handleBottomRight, self._handleBottomLeft
+
+            if self._handleTopLeft.getXPosition() > self._handleTopRight.getXPosition():
+                self._handleTopLeft, self._handleTopRight = self._handleTopRight, self._handleTopLeft
+
+            if self._handleBottomLeft.getYPosition() > self._handleTopLeft.getYPosition():
+                self._handleBottomLeft, self._handleTopLeft = self._handleTopLeft, self._handleBottomLeft
+
+            if self._handleBottomRight.getYPosition() > self._handleTopRight.getYPosition():
+                self._handleBottomRight, self._handleTopRight = self._handleTopRight, self._handleBottomRight
+
             self._setBound(points)
 
     def __str__(self):
@@ -2378,7 +2391,7 @@ class ArcROI(HandleBasedROI, items.LineMixIn):
             points = numpy.array([geometry.startPoint, geometry.startPoint])
         elif kind == "circle":
             outerRadius = geometry.radius + geometry.weight * 0.5
-            angles = numpy.arange(0, 2 * numpy.pi, 0.1)
+            angles = numpy.linspace(0, 2 * numpy.pi, num=50)
             # It's a circle
             points = []
             numpy.append(angles, angles[-1])
@@ -2389,7 +2402,7 @@ class ArcROI(HandleBasedROI, items.LineMixIn):
         elif kind == "donut":
             innerRadius = geometry.radius - geometry.weight * 0.5
             outerRadius = geometry.radius + geometry.weight * 0.5
-            angles = numpy.arange(0, 2 * numpy.pi, 0.1)
+            angles = numpy.linspace(0, 2 * numpy.pi, num=50)
             # It's a donut
             points = []
             # NOTE: NaN value allow to create 2 separated circle shapes

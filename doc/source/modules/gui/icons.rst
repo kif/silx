@@ -69,6 +69,16 @@ Available icons
      - colormap-histogram
    * - |colormap-none|
      - colormap-none
+   * - |colormap-norm-arcsinh|
+     - colormap-norm-arcsinh
+   * - |colormap-norm-gamma|
+     - colormap-norm-gamma
+   * - |colormap-norm-linear|
+     - colormap-norm-linear
+   * - |colormap-norm-log|
+     - colormap-norm-log
+   * - |colormap-norm-sqrt|
+     - colormap-norm-sqrt
    * - |colormap-range|
      - colormap-range
    * - |colormap|
@@ -349,6 +359,8 @@ Available icons
      - tree-collapse-all
    * - |tree-expand-all|
      - tree-expand-all
+   * - |tree-sort|
+     - tree-sort
    * - |view-1d|
      - view-1d
    * - |view-2d-stack|
@@ -409,6 +421,11 @@ Available icons
 .. |colorbar| image:: ../../../../silx/resources/gui/icons/colorbar.png
 .. |colormap-histogram| image:: ../../../../silx/resources/gui/icons/colormap-histogram.png
 .. |colormap-none| image:: ../../../../silx/resources/gui/icons/colormap-none.png
+.. |colormap-norm-arcsinh| image:: ../../../../silx/resources/gui/icons/colormap-norm-arcsinh.png
+.. |colormap-norm-gamma| image:: ../../../../silx/resources/gui/icons/colormap-norm-gamma.png
+.. |colormap-norm-linear| image:: ../../../../silx/resources/gui/icons/colormap-norm-linear.png
+.. |colormap-norm-log| image:: ../../../../silx/resources/gui/icons/colormap-norm-log.png
+.. |colormap-norm-sqrt| image:: ../../../../silx/resources/gui/icons/colormap-norm-sqrt.png
 .. |colormap-range| image:: ../../../../silx/resources/gui/icons/colormap-range.png
 .. |colormap| image:: ../../../../silx/resources/gui/icons/colormap.png
 .. |compare-align-auto| image:: ../../../../silx/resources/gui/icons/compare-align-auto.png
@@ -549,6 +566,7 @@ Available icons
 .. |stats-whole-items| image:: ../../../../silx/resources/gui/icons/stats-whole-items.png
 .. |tree-collapse-all| image:: ../../../../silx/resources/gui/icons/tree-collapse-all.png
 .. |tree-expand-all| image:: ../../../../silx/resources/gui/icons/tree-expand-all.png
+.. |tree-sort| image:: ../../../../silx/resources/gui/icons/tree-sort.png
 .. |view-1d| image:: ../../../../silx/resources/gui/icons/view-1d.png
 .. |view-2d-stack| image:: ../../../../silx/resources/gui/icons/view-2d-stack.png
 .. |view-2d| image:: ../../../../silx/resources/gui/icons/view-2d.png

@@ -44,7 +44,7 @@ _logger = logging.getLogger(__name__)
 from ... import qt
 
 # First of all init matplotlib and set its backend
-from ..matplotlib import FigureCanvasQTAgg
+from ...utils.matplotlib import FigureCanvasQTAgg
 import matplotlib
 from matplotlib.container import Container
 from matplotlib.figure import Figure
@@ -450,6 +450,7 @@ class Image(AxesImage):
         return inside, info
 
     def set_data(self, A):
+        """Overridden to add a fast path for RGBA unit8 images"""
         A = numpy.array(A, copy=False)
         if A.ndim != 3 or A.shape[2] != 4 or A.dtype != numpy.uint8:
             super(Image, self).set_data(A)
@@ -600,7 +601,7 @@ class BackendMatplotlib(BackendBase.BackendBase):
         else:
             axes = self.ax
 
-        picker = 3
+        pickradius = 3
 
         artists = []  # All the artists composing the curve
 
@@ -638,7 +639,8 @@ class BackendMatplotlib(BackendBase.BackendBase):
                                       linestyle=linestyle,
                                       color=actualColor[0],
                                       linewidth=linewidth,
-                                      picker=picker,
+                                      picker=True,
+                                      pickradius=pickradius,
                                       marker=None)
                 artists += list(curveList)
 
@@ -646,7 +648,8 @@ class BackendMatplotlib(BackendBase.BackendBase):
             scatter = axes.scatter(x, y,
                                    color=actualColor,
                                    marker=marker,
-                                   picker=picker,
+                                   picker=True,
+                                   pickradius=pickradius,
                                    s=symbolsize**2)
             artists.append(scatter)
 
@@ -664,7 +667,8 @@ class BackendMatplotlib(BackendBase.BackendBase):
                                   color=color,
                                   linewidth=linewidth,
                                   marker=symbol,
-                                  picker=picker,
+                                  picker=True,
+                                  pickradius=pickradius,
                                   markersize=symbolsize)
             artists += list(curveList)
 
@@ -749,7 +753,7 @@ class BackendMatplotlib(BackendBase.BackendBase):
         collection = TriMesh(
             Triangulation(x, y, triangles),
             alpha=alpha,
-            picker=0)  # 0 enables picking on filled triangle
+            pickradius=0)  # 0 enables picking on filled triangle
         collection.set_color(color)
         self.ax.add_collection(collection)
 
@@ -892,7 +896,8 @@ class BackendMatplotlib(BackendBase.BackendBase):
         else:
             raise RuntimeError('A marker must at least have one coordinate')
 
-        line.set_picker(5)
+        line.set_picker(True)
+        line.set_pickradius(5)
 
         # All markers are overlays
         line.set_animated(True)
@@ -1013,7 +1018,11 @@ class BackendMatplotlib(BackendBase.BackendBase):
             lambda item: item.isVisible() and item._backendRenderer is not None)
         count = len(items)
         for index, item in enumerate(items):
-            zorder = 1. + index / count
+            if item.getZValue() < 0.5:
+                # Make sure matplotlib z order is below the grid (with z=0.5)
+                zorder = 0.5 * index / count
+            else:  # Make sure matplotlib z order is above the grid (> 0.5)
+                zorder = 1. + index / count
             if zorder != item._backendRenderer.get_zorder():
                 item._backendRenderer.set_zorder(zorder)
 
@@ -1235,27 +1244,18 @@ class BackendMatplotlib(BackendBase.BackendBase):
                 int(bbox.width),
                 int(bbox.height))
 
-    def setAxesDisplayed(self, displayed):
-        """Display or not the axes.
+    def setAxesMargins(self, left: float, top: float, right: float, bottom: float):
+        width, height = 1. - left - right, 1. - top - bottom
+        position = left, bottom, width, height
 
-        :param bool displayed: If `True` axes are displayed. If `False` axes
-            are not anymore visible and the margin used for them is removed.
-        """
-        BackendBase.BackendBase.setAxesDisplayed(self, displayed)
-        if displayed:
-            # show axes and viewbox rect
-            self.ax.set_frame_on(True)
-            self.ax2.set_frame_on(True)
-            # set the default margins
-            self.ax.set_position([.15, .15, .75, .75])
-            self.ax2.set_position([.15, .15, .75, .75])
-        else:
-            # hide axes and viewbox rect
-            self.ax.set_frame_on(False)
-            self.ax2.set_frame_on(False)
-            # remove external margins
-            self.ax.set_position([0, 0, 1, 1])
-            self.ax2.set_position([0, 0, 1, 1])
+        # Toggle display of axes and viewbox rect
+        isFrameOn = position != (0., 0., 1., 1.)
+        self.ax.set_frame_on(isFrameOn)
+        self.ax2.set_frame_on(isFrameOn)
+
+        self.ax.set_position(position)
+        self.ax2.set_position(position)
+
         self._synchronizeBackgroundColors()
         self._synchronizeForegroundColors()
         self._plot._setDirtyPlot()

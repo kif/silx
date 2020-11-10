@@ -43,6 +43,7 @@ from silx.math.combo import min_max
 from ...._glutils import gl
 from ...._glutils import Program, vertexBuffer, VertexBufferAttrib
 from .GLSupport import buildFillMaskIndices, mat4Identity, mat4Translate
+from .GLPlotImage import GLPlotItem
 
 
 _logger = logging.getLogger(__name__)
@@ -172,10 +173,10 @@ class _Fill2D(object):
 
             self._xFillVboData, self._yFillVboData = vertexBuffer(points.T)
 
-    def render(self, matrix):
+    def render(self, context):
         """Perform rendering
 
-        :param numpy.ndarray matrix: 4x4 transform matrix to use
+        :param RenderContext context:
         """
         self.prepare()
 
@@ -186,7 +187,7 @@ class _Fill2D(object):
 
         gl.glUniformMatrix4fv(
             self._PROGRAM.uniforms['matrix'], 1, gl.GL_TRUE,
-            numpy.dot(matrix,
+            numpy.dot(context.matrix,
                       mat4Translate(*self.offset)).astype(numpy.float32))
 
         gl.glUniform4f(self._PROGRAM.uniforms['color'], *self.color)
@@ -404,11 +405,13 @@ class GLLines2D(object):
         """OpenGL context initialization"""
         gl.glHint(gl.GL_LINE_SMOOTH_HINT, gl.GL_NICEST)
 
-    def render(self, matrix):
+    def render(self, context):
         """Perform rendering
 
-        :param numpy.ndarray matrix: 4x4 transform matrix to use
+        :param RenderContext context:
         """
+        width = self.width / 72. * context.dpi
+
         style = self.style
         if style is None:
             return
@@ -425,7 +428,7 @@ class GLLines2D(object):
             gl.glUniform2f(program.uniforms['halfViewportSize'],
                            0.5 * viewWidth, 0.5 * viewHeight)
 
-            dashPeriod = self.dashPeriod * self.width
+            dashPeriod = self.dashPeriod * width
             if self.style == DOTTED:
                 dash = (0.2 * dashPeriod,
                         0.5 * dashPeriod,
@@ -463,10 +466,10 @@ class GLLines2D(object):
                                          0,
                                          self.distVboData)
 
-        if self.width != 1:
+        if width != 1:
             gl.glEnable(gl.GL_LINE_SMOOTH)
 
-        matrix = numpy.dot(matrix,
+        matrix = numpy.dot(context.matrix,
                            mat4Translate(*self.offset)).astype(numpy.float32)
         gl.glUniformMatrix4fv(program.uniforms['matrix'],
                               1, gl.GL_TRUE, matrix)
@@ -503,7 +506,7 @@ class GLLines2D(object):
                                      0,
                                      self.yVboData)
 
-        gl.glLineWidth(self.width)
+        gl.glLineWidth(width)
         gl.glDrawArrays(self._drawMode, 0, self.xVboData.size)
 
         gl.glDisable(gl.GL_LINE_SMOOTH)
@@ -833,10 +836,10 @@ class _Points2D(object):
         if majorVersion >= 3:  # OpenGL 3
             gl.glEnable(gl.GL_PROGRAM_POINT_SIZE)
 
-    def render(self, matrix):
+    def render(self, context):
         """Perform rendering
 
-        :param numpy.ndarray matrix: 4x4 transform matrix to use
+        :param RenderContext context:
         """
         if self.marker is None:
             return
@@ -844,7 +847,7 @@ class _Points2D(object):
         program = self._getProgram(self.marker)
         program.use()
 
-        matrix = numpy.dot(matrix,
+        matrix = numpy.dot(context.matrix,
                            mat4Translate(*self.offset)).astype(numpy.float32)
         gl.glUniformMatrix4fv(program.uniforms['matrix'], 1, gl.GL_TRUE, matrix)
 
@@ -854,6 +857,13 @@ class _Points2D(object):
             size = math.ceil(0.5 * self.size) + 1  # Mimic Matplotlib point
         else:
             size = self.size
+        size = size / 72. * context.dpi
+
+        if self.marker in (PLUS, H_LINE, V_LINE,
+                           TICK_LEFT, TICK_RIGHT, TICK_UP, TICK_DOWN):
+            # Convert to nearest odd number
+            size = size // 2 * 2 + 1.
+
         gl.glUniform1f(program.uniforms['size'], size)
         # gl.glPointSize(self.size)
 
@@ -1021,17 +1031,17 @@ class _ErrorBars(object):
             self._yErrPoints.yVboData.offset += (yAttrib.itemsize *
                                                  yAttrib.size // 2)
 
-    def render(self, matrix):
+    def render(self, context):
         """Perform rendering
 
-        :param numpy.ndarray matrix: 4x4 transform matrix to use
+        :param RenderContext context:
         """
         self.prepare()
 
         if self._attribs is not None:
-            self._lines.render(matrix)
-            self._xErrPoints.render(matrix)
-            self._yErrPoints.render(matrix)
+            self._lines.render(context)
+            self._xErrPoints.render(context)
+            self._yErrPoints.render(context)
 
     def discard(self):
         """Release VBOs"""
@@ -1067,7 +1077,7 @@ def _proxyProperty(*componentsAttributes):
     return property(getter, setter)
 
 
-class GLPlotCurve2D(object):
+class GLPlotCurve2D(GLPlotItem):
     def __init__(self, xData, yData, colorData=None,
                  xError=None, yError=None,
                  lineStyle=SOLID,
@@ -1080,7 +1090,7 @@ class GLPlotCurve2D(object):
                  fillColor=None,
                  baseline=None,
                  isYLog=False):
-
+        super().__init__()
         self.colorData = colorData
 
         # Compute x bounds
@@ -1220,19 +1230,17 @@ class GLPlotCurve2D(object):
             self.colorVboData = cAttrib
             self.useColorVboData = cAttrib is not None
 
-    def render(self, matrix, isXLog, isYLog):
+    def render(self, context):
         """Perform rendering
 
-        :param numpy.ndarray matrix: 4x4 transform matrix to use
-        :param bool isXLog:
-        :param bool isYLog:
+        :param RenderContext context: Rendering information
         """
         self.prepare()
         if self.fill is not None:
-            self.fill.render(matrix)
-        self._errorBars.render(matrix)
-        self.lines.render(matrix)
-        self.points.render(matrix)
+            self.fill.render(context)
+        self._errorBars.render(context)
+        self.lines.render(context)
+        self.points.render(context)
 
     def discard(self):
         """Release VBOs"""
