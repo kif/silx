@@ -13,6 +13,11 @@ Minor release:
   * Fixed assert on ImageStack when length of urls > 0 (PR #3491)
 
 * Misc: Fixed support of `numpy` 1.21rc1 (PR #3477)
+* OpenCL: 
+
+  * Fixed unfreeed memory from clFFT (TODO)
+  * Expose the double-word opencl library (PR #3466) 
+         
 
 0.15.1: 2021/05/17
 ------------------
