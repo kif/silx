@@ -2,7 +2,7 @@
 # coding: utf8
 # /*##########################################################################
 #
-# Copyright (c) 2015-2020 European Synchrotron Radiation Facility
+# Copyright (c) 2015-2021 European Synchrotron Radiation Facility
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -304,11 +304,6 @@ def build_project(name, root_dir):
 
 def import_project_module(project_name, project_dir):
     """Import project module, from the system of from the project directory"""
-    # Prevent importing from source directory
-    if (os.path.dirname(os.path.abspath(__file__)) == os.path.abspath(sys.path[0])):
-        removed_from_sys_path = sys.path.pop(0)
-        logger.info("Patched sys.path, removed: '%s'", removed_from_sys_path)
-
     if "--installed" in sys.argv:
         try:
             module = importer(project_name)
@@ -379,7 +374,7 @@ if __name__ == "__main__":  # Needed for multiprocessing support on Windows
                              "INFO messages. Use -vv for full verbosity, " +
                              "including debug messages and test help strings.")
     parser.add_argument("--qt-binding", dest="qt_binding", default=None,
-                        help="Force using a Qt binding, from 'PyQt4', 'PyQt5', or 'PySide'")
+                        help="Force using a Qt binding: 'PyQt5', 'PySide2'")
     if test_options is not None:
         test_options.add_parser_argument(parser)
 
@@ -417,22 +412,9 @@ if __name__ == "__main__":  # Needed for multiprocessing support on Windows
 
     if options.qt_binding:
         binding = options.qt_binding.lower()
-        if binding == "pyqt4":
-            logger.info("Force using PyQt4")
-            if sys.version < "3.0.0":
-                try:
-                    import sip
-                    sip.setapi("QString", 2)
-                    sip.setapi("QVariant", 2)
-                except Exception:
-                    logger.warning("Cannot set sip API")
-            import PyQt4.QtCore  # noqa
-        elif binding == "pyqt5":
+        if binding == "pyqt5":
             logger.info("Force using PyQt5")
             import PyQt5.QtCore  # noqa
-        elif binding == "pyside":
-            logger.info("Force using PySide")
-            import PySide.QtCore  # noqa
         elif binding == "pyside2":
             logger.info("Force using PySide2")
             import PySide2.QtCore  # noqa
