@@ -71,15 +71,9 @@ PRERELEASE_NORMALIZED_NAME = {"dev": "a",
                               "candidate": "rc"}
 
 MAJOR = 0
-<<<<<<< HEAD:version.py
 MINOR = 15
 MICRO = 2
 RELEV = "final"  # <16
-=======
-MINOR = 16
-MICRO = 0
-RELEV = "dev"  # <16
->>>>>>> kif/3451_doubleword:src/silx/_version.py
 SERIAL = 0  # <16
 
 date = __date__
